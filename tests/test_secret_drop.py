@@ -199,6 +199,18 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(mock_json.call_args[0][0], "https://pwpush.com/p/testtoken123.json")
 
     @patch("secret_drop.providers.pwpush.request_json")
+    def test_pwpush_accepts_retrieval_step_url(self, mock_json) -> None:
+        mock_json.return_value = (200, {"payload": "secret-value-from-pwpush"}, b"")
+        value = pwpush_retrieve(
+            "https://eu.pwpush.com/p/testtoken123/r", allow_private=True
+        )
+        self.assertEqual(value, "secret-value-from-pwpush")
+        self.assertEqual(
+            mock_json.call_args[0][0],
+            "https://eu.pwpush.com/p/testtoken123.json",
+        )
+
+    @patch("secret_drop.providers.pwpush.request_json")
     def test_pwpush_completes_retrieval_step(self, mock_json) -> None:
         mock_json.side_effect = [
             (200, {"retrieval_step": True, "payload": None}, b""),

@@ -35,7 +35,7 @@ Instead of sending plaintext over chat:
 ```
 
 1. You create an expiring single-use link on an established secret sharing service.
-2. You send only the link to your agent in chat: `"Set OPENROUTER_API_KEY from https://pwpush.com/p/abc12345"`.
+2. You send only the retrieval-step link to your agent in chat: `"Set OPENROUTER_API_KEY from https://eu.pwpush.com/p/abc12345/r"`.
 3. The agent invokes `secret-drop`.
 4. The CLI fetches the secret in-process and writes it atomically to the desired target (`~/.openclaw/.env`, local `.env`, or OpenClaw SQLite secret store). A provider configured for one retrieval consumes or expires the drop.
 5. The CLI outputs only a safe confirmation (`Stored 64 bytes as OPENROUTER_API_KEY`). **The secret never touches standard output or chat history.**
@@ -106,12 +106,18 @@ sudo ln -s $(pwd)/scripts/secret-drop /usr/local/bin/secret-drop
 
 ### Ingest from Password Pusher to OpenClaw global env:
 ```bash
-secret-drop ingest "https://pwpush.com/p/kngc42l6azicpqj5hbu" \
+secret-drop ingest "https://eu.pwpush.com/p/kngc42l6azicpqj5hbu/r" \
   --to openclaw-env \
   --name "OPENROUTER_API_KEY" \
   --restart-gateway \
   --json
 ```
+
+For messenger delivery, enable Password Pusher's retrieval step and preserve the
+generated `/r` suffix. If creating a push through `POST /p.json`, forward the exact
+`html_url` response field. Do not reconstruct `https://pwpush.com/p/<token>`:
+that bare route reveals and consumes the secret on a GET, including a Telegram
+link-preview request.
 
 `--restart-gateway` is optional and only acts when the selected destination reports
 `restart_required: true`. It runs `openclaw gateway restart --safe`, so OpenClaw can

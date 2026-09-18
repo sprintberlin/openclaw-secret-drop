@@ -4,13 +4,13 @@ The messages below contain only synthetic links.
 
 ## Global OpenClaw provider credential
 
-> Store this as `OPENROUTER_API_KEY` for OpenClaw: `https://pwpush.com/p/example-token`
+> Store this as `OPENROUTER_API_KEY` for OpenClaw: `https://eu.pwpush.com/p/example-token/r`
 
 Expected agent action:
 
 ```bash
 python3 <skill-directory>/scripts/secret-drop ingest \
-  "https://pwpush.com/p/example-token" \
+  "https://eu.pwpush.com/p/example-token/r" \
   --to openclaw-env \
   --name OPENROUTER_API_KEY \
   --json
@@ -38,13 +38,13 @@ python3 <skill-directory>/scripts/secret-drop ingest \
 
 ## Project dotenv
 
-> Put this into `/srv/acme/.env` as `DATABASE_URL`: `https://pwpush.example/p/example-token`
+> Put this into `/srv/acme/.env` as `DATABASE_URL`: `https://pwpush.example/p/example-token/r`
 
 For a self-hosted Password Pusher on an unknown domain, select the provider explicitly:
 
 ```bash
 python3 <skill-directory>/scripts/secret-drop ingest \
-  "https://pwpush.example/p/example-token" \
+  "https://pwpush.example/p/example-token/r" \
   --provider pwpush \
   --to dotenv \
   --path /srv/acme/.env \

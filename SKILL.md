@@ -24,7 +24,7 @@ Furthermore, on messenger channels without a public Control UI origin, official 
 
 | Provider | URL Pattern | Zero Knowledge | Engine | Notes |
 |---|---|---|---|---|
-| **Password Pusher** | `https://pwpush.com/p/...` or custom domain | Server-encrypted | Native JSON API | Enable the 1-click retrieval step so messaging link-preview crawlers don't burn the link! |
+| **Password Pusher** | `https://pwpush.com/p/.../r` or custom domain | Server-encrypted | Native JSON API | Enable the 1-click retrieval step and send the generated `/r` URL so messaging link-preview crawlers don't burn the link. |
 | **SnapPwd** | `https://snappwd.io/g/...#<key>` | Yes (AES-GCM in browser) | Native AES-GCM decrypt | Key is in the `#` fragment and never reaches the server. |
 
 *Note:* Password Pusher and SnapPwd use native in-process HTTPS and AES-GCM decryption without child process delegation, avoiding command-line secret exposure.
@@ -44,8 +44,12 @@ When sending a credential over Telegram or Discord:
 2. Paste the API key or password.
 3. Set expiration to **1 view** and **1 day**.
 4. If using Password Pusher, check **1-Click Retrieval Step** (crucial for Telegram/Slack).
-5. Send the link to the agent along with the desired environment variable name:
-   > "Here is the key for OPENROUTER_API_KEY: https://pwpush.com/p/abcdef123456"
+5. Send the exact generated retrieval-step URL ending in `/r`; never remove `/r` or reconstruct a bare `/p/<token>` URL. A bare URL reveals and consumes the push on GET, including a Telegram link-preview request.
+6. Send the `/r` link to the agent along with the desired environment variable name:
+   > "Here is the key for OPENROUTER_API_KEY: https://eu.pwpush.com/p/abcdef123456/r"
+
+When creating a push through `POST /p.json`, use the response's exact `html_url`
+field and verify it ends in `/r`. Do not build a URL from `url_token`.
 
 ## Agent Ingest Workflow
 
