@@ -65,7 +65,7 @@ when the operator wants to control restart timing manually.
 
 Output on stdout:
 ```json
-{"bytes":64,"created":false,"destination":"openclaw-env","name":"OPENROUTER_API_KEY","ok":true,"path":"/home/alice/.openclaw/.env","provider":"pwpush","replaced":true,"restart_required":true}
+{"bytes":64,"created":false,"destination":"openclaw-env","gateway_restarted":true,"name":"OPENROUTER_API_KEY","ok":true,"path":"/home/alice/.openclaw/.env","provider":"pwpush","replaced":true,"restart_required":false}
 ```
 
 The agent verifies `"ok": true` and reports back to the user:
