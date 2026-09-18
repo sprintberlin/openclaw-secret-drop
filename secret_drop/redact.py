@@ -38,15 +38,29 @@ def sanitize_url(url: str) -> str:
 def redact_text(text: str, *, secret: str | None = None, url: str | None = None) -> str:
     out = text or ""
     if secret:
-        if secret and secret in out:
+        if secret in out:
             out = out.replace(secret, "[redacted-secret]")
         trimmed = secret.strip()
         if trimmed and trimmed in out:
             out = out.replace(trimmed, "[redacted-secret]")
+        # Redact common token prefixes or substrings if longer than 8 chars
+        if len(trimmed) > 8:
+            # Check for chunked or partial representations
+            chunk_len = max(8, len(trimmed) // 2)
+            out = out.replace(trimmed[:chunk_len], "[redacted-secret]")
+            out = out.replace(trimmed[-chunk_len:], "[redacted-secret]")
     if url:
         if url in out:
             out = out.replace(url, sanitize_url(url) or "[redacted-url]")
-        fragment = urlsplit(url).fragment
-        if fragment and fragment in out:
-            out = out.replace(fragment, "[redacted-fragment]")
+        try:
+            parts = urlsplit(url)
+            fragment = parts.fragment
+            if fragment and fragment in out:
+                out = out.replace(fragment, "[redacted-fragment]")
+                if len(fragment) > 8:
+                    out = out.replace(fragment[:8], "[redacted-fragment]")
+            if parts.query and parts.query in out:
+                out = out.replace(parts.query, "[redacted-query]")
+        except Exception:
+            pass
     return out

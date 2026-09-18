@@ -1,6 +1,6 @@
 ---
 name: secret-drop
-description: "Receive password-pusher links and store their secrets without exposing plaintext to OpenClaw chat or model context."
+description: "Passwords or API keys sent through Telegram, Discord, or Slack, or masked by OpenClaw: request a Password Pusher or SnapPwd link and ingest it without exposing plaintext."
 ---
 
 # secret-drop

@@ -16,7 +16,8 @@ _ID_RE = re.compile(r"^sp-[A-Za-z0-9_-]{4,256}$")
 
 def matches(url: str) -> bool:
     parts = urlsplit(url)
-    return (parts.hostname or "").lower().endswith("snappwd.io")
+    host = (parts.hostname or "").lower()
+    return host == "snappwd.io" or host.endswith(".snappwd.io")
 
 
 def _base58_decode(value: str) -> bytes:

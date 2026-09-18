@@ -93,6 +93,16 @@ class DotenvWriterTests(unittest.TestCase):
         self.assertIn("KEY_ONE=value_2_updated", content)
         self.assertNotIn("value_1", content)
 
+    def test_refuses_symlink_target_or_directory(self) -> None:
+        symlink = Path(self.temp_dir.name) / "symlink.env"
+        real = Path(self.temp_dir.name) / "real.env"
+        real.write_text("FOO=bar\n")
+        symlink.symlink_to(real)
+        with self.assertRaises(SecretDropError):
+            upsert_env_file(symlink, "KEY", "val")
+        with self.assertRaises(SecretDropError):
+            write_secret_file(symlink, "val")
+
     def test_quotes_special_characters(self) -> None:
         line = format_assignment("COMPLEX", 'secret "quoted" with spaces')
         self.assertEqual(line, 'COMPLEX="secret \\"quoted\\" with spaces"\n')

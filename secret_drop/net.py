@@ -26,14 +26,9 @@ def _is_private_ip(ip: str) -> bool:
         addr = ipaddress.ip_address(ip)
     except ValueError:
         return True
-    return bool(
-        addr.is_private
-        or addr.is_loopback
-        or addr.is_link_local
-        or addr.is_multicast
-        or addr.is_reserved
-        or addr.is_unspecified
-    )
+    if hasattr(addr, "ipv4_mapped") and addr.ipv4_mapped:
+        addr = addr.ipv4_mapped
+    return not addr.is_global
 
 
 def parse_https_url(url: str) -> tuple[str, int, str]:
@@ -93,7 +88,9 @@ class _PinnedHTTPSConnection(HTTPSConnection):
         self.sock = socket.create_connection((self._connect_ip, self.port), self.timeout)
         if self._tunnel_host:
             self._tunnel()
-        self.sock = self._context.wrap_socket(self.sock, server_hostname=self.host)
+        # SNI hostname must not include a port
+        sni_host = self.host.split(":")[0] if self.host else None
+        self.sock = self._context.wrap_socket(self.sock, server_hostname=sni_host)
 
 
 class _PinnedHTTPSHandler(HTTPSHandler):
