@@ -7,6 +7,21 @@ from urllib.parse import urlsplit, urlunsplit
 
 _FRAGMENT_RE = re.compile(r"#.*$", re.S)
 _USERINFO_RE = re.compile(r"(://)([^/@]+)@")
+_PATH_TOKEN_RE = re.compile(r"(?P<prefix>/(?:p|g)/)(?P<token>[^/?#]+)")
+
+
+def _sanitize_path(path: str) -> str:
+    return _PATH_TOKEN_RE.sub(r"\g<prefix>[redacted-token]", path)
+
+
+def _path_tokens(path: str) -> set[str]:
+    tokens: set[str] = set()
+    for match in _PATH_TOKEN_RE.finditer(path):
+        token = match.group("token")
+        if token.endswith(".json"):
+            token = token[:-5]
+        tokens.add(token)
+    return {token for token in tokens if token}
 
 
 def host_of(url: str) -> str:
@@ -17,7 +32,7 @@ def host_of(url: str) -> str:
 
 
 def sanitize_url(url: str) -> str:
-    """Drop fragment, userinfo, and common secret query keys. Keep scheme/host/path."""
+    """Drop URL key material while retaining a useful provider endpoint shape."""
     raw = (url or "").strip()
     if not raw:
         return ""
@@ -28,11 +43,11 @@ def sanitize_url(url: str) -> str:
             netloc = f"{netloc}:{parts.port}"
         # Query values can carry passphrases or access tokens. Error messages do not
         # need them, so drop the whole query instead of trying to classify every key.
-        return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
+        return urlunsplit((parts.scheme, netloc, _sanitize_path(parts.path), "", ""))
     except Exception:
         cleaned = _FRAGMENT_RE.sub("# [redacted]", raw)
         cleaned = _USERINFO_RE.sub(r"\1[redacted]@", cleaned)
-        return cleaned
+        return _sanitize_path(cleaned)
 
 
 def redact_text(text: str, *, secret: str | None = None, url: str | None = None) -> str:
@@ -50,10 +65,15 @@ def redact_text(text: str, *, secret: str | None = None, url: str | None = None)
             out = out.replace(trimmed[:chunk_len], "[redacted-secret]")
             out = out.replace(trimmed[-chunk_len:], "[redacted-secret]")
     if url:
-        if url in out:
-            out = out.replace(url, sanitize_url(url) or "[redacted-url]")
         try:
             parts = urlsplit(url)
+            for token in sorted(_path_tokens(parts.path), key=len, reverse=True):
+                if token in out:
+                    out = out.replace(token, "[redacted-token]")
+
+            if url in out:
+                out = out.replace(url, sanitize_url(url) or "[redacted-url]")
+
             fragment = parts.fragment
             if fragment and fragment in out:
                 out = out.replace(fragment, "[redacted-fragment]")

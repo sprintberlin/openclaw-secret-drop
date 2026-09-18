@@ -63,16 +63,12 @@ def resolve_public_https(url: str, *, allow_private: bool = False) -> tuple[str,
         raise SecretDropError(f"Could not resolve host {host}.") from exc
     if not infos:
         raise SecretDropError(f"Could not resolve host {host}.")
-    chosen: str | None = None
-    for info in infos:
-        ip = info[4][0]
-        if _is_private_ip(ip):
-            raise SecretDropError(f"Refusing to fetch private or local address for {host}.")
-        if chosen is None:
-            chosen = ip
-    if chosen is None:
-        raise SecretDropError(f"Could not resolve host {host}.")
-    return host, port, path, chosen
+    resolved_ips = [info[4][0] for info in infos]
+    # Validate every A/AAAA result before selecting the pinned connection target.
+    # A single private or scoped result makes a mixed DNS answer unsafe.
+    if any(_is_private_ip(ip) for ip in resolved_ips):
+        raise SecretDropError(f"Refusing to fetch private or local address for {host}.")
+    return host, port, path, resolved_ips[0]
 
 
 def assert_public_https(url: str, *, allow_private: bool = False) -> None:

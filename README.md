@@ -109,8 +109,14 @@ sudo ln -s $(pwd)/scripts/secret-drop /usr/local/bin/secret-drop
 secret-drop ingest "https://pwpush.com/p/kngc42l6azicpqj5hbu" \
   --to openclaw-env \
   --name "OPENROUTER_API_KEY" \
+  --restart-gateway \
   --json
 ```
+
+`--restart-gateway` is optional and only acts when the selected destination reports
+`restart_required: true`. It runs `openclaw gateway restart --safe`, so OpenClaw can
+defer the restart until active work has drained. Without the flag, Secret Drop stores
+the value and leaves `restart_required: true` in the result.
 
 ### Ingest from SnapPwd (Client-Side Encrypted):
 ```bash
@@ -131,7 +137,8 @@ secret-drop ingest "https://snappwd.io/g/sp-uuid123#base58key" \
     "path": "/home/alice/.openclaw/.env",
   "provider": "pwpush",
   "replaced": true,
-  "restart_required": true
+  "gateway_restarted": true,
+  "restart_required": false
 }
 ```
 
@@ -140,8 +147,9 @@ secret-drop ingest "https://snappwd.io/g/sp-uuid123#base58key" \
 ## Security Guarantees
 
 - **No Output Leakage:** The CLI strictly suppresses secrets on `stdout`, `stderr`, and exit codes.
-- **Atomic File Writes:** Writes use temporary files in the target directory, `fchmod 0600`, `fsync`, and atomic `os.replace`.
-- **SSRF Guardrails:** The HTTP client requires HTTPS, rejects URL userinfo, validates every redirect, and rejects DNS results in RFC-1918 private subnets, loopback, link-local, multicast, reserved, or unspecified ranges. Self-hosted private instances require explicit `--allow-private-host`. This is defense in depth, not a replacement for host network policy.
+- **Atomic File Writes:** Writes use temporary files in the target directory, `fchmod 0600`, `fsync`, and atomic `os.replace`. The destination is checked again with `lstat` immediately before replacement to reject a late symlink swap.
+- **SSRF Guardrails:** The HTTP client requires HTTPS, rejects URL userinfo, validates every redirect, and rejects the request if any resolved A/AAAA result is private, loopback, link-local, multicast, reserved, unspecified, or scoped. Self-hosted private instances require explicit `--allow-private-host`. This is defense in depth, not a replacement for host network policy.
+- **URL Redaction:** Provider identifiers in `/p/<token>` and `/g/<id>` paths, query strings, and fragments are masked in status and error output.
 - **No false erase promise:** Python cannot guarantee erasure of immutable strings or SSD/journal history. The design minimizes copies and never emits plaintext; use a protected OpenClaw store or external secret manager when stronger storage isolation is required.
 
 ---

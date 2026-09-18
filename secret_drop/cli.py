@@ -12,7 +12,7 @@ from secret_drop import MAX_SECRET_BYTES, __version__
 from secret_drop.errors import SecretDropError
 from secret_drop.providers.registry import PROVIDERS, retrieve_secret
 from secret_drop.redact import redact_text, sanitize_url
-from secret_drop.writers import write_secret
+from secret_drop.writers import restart_openclaw_gateway, write_secret
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -58,6 +58,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow a self-hosted provider on a private address (explicit opt-in)",
     )
+    ingest.add_argument(
+        "--restart-gateway",
+        action="store_true",
+        help="Run 'openclaw gateway restart --safe' when the destination requires a restart",
+    )
     ingest.add_argument("--json", action="store_true", help="Emit secret-free JSON status")
 
     providers = sub.add_parser("providers", help="List supported adapters")
@@ -78,7 +83,12 @@ def _emit(result: dict[str, Any], *, json_mode: bool) -> None:
         return
     if result.get("ok"):
         name = f" as {result['name']}" if result.get("name") else ""
-        suffix = " Gateway restart required." if result.get("restart_required") else ""
+        if result.get("gateway_restarted"):
+            suffix = " Gateway restart requested."
+        elif result.get("restart_required"):
+            suffix = " Gateway restart required."
+        else:
+            suffix = ""
         print(
             f"Stored {result.get('bytes', 0)} bytes{name} via {result.get('provider')} "
             f"to {result.get('destination')}.{suffix}"
@@ -112,7 +122,23 @@ def _run_ingest(args: argparse.Namespace) -> int:
             reload_runtime=args.reload,
             replace=args.replace,
         )
-        result = {"ok": True, "provider": provider, "bytes": byte_count, **written}
+        restarted = False
+        if args.restart_gateway and written.get("restart_required"):
+            try:
+                restart_openclaw_gateway()
+            except SecretDropError as exc:
+                raise SecretDropError(
+                    "Secret was stored, but OpenClaw gateway restart failed."
+                ) from exc
+            restarted = True
+            written["restart_required"] = False
+        result = {
+            "ok": True,
+            "provider": provider,
+            "bytes": byte_count,
+            "gateway_restarted": restarted,
+            **written,
+        }
         _emit(result, json_mode=args.json)
         return 0
     except SecretDropError as exc:

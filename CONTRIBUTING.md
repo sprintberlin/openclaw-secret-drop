@@ -8,7 +8,7 @@ cd openclaw-secret-drop
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -e .
-python -m unittest discover -s tests -v
+python -m unittest discover -v
 ```
 
 ## Rules for security-sensitive changes
@@ -26,7 +26,7 @@ python -m unittest discover -s tests -v
 Run before opening a pull request:
 
 ```bash
-python -m unittest discover -s tests -v
+python -m unittest discover -v
 python -m compileall -q secret_drop tests
 python scripts/secret-drop providers --json
 ```

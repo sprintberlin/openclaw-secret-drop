@@ -55,8 +55,13 @@ When an authorized operator provides a one-time link and an exact destination, r
 python3 <skill-directory>/scripts/secret-drop ingest "<URL>" \
   --name "VARIABLE_NAME" \
   --to openclaw-env \
+  --restart-gateway \
   --json
 ```
+
+`--restart-gateway` is optional. It invokes the supported `openclaw gateway restart
+--safe` path only when the destination reports that a restart is required. Omit it
+when the operator wants to control restart timing manually.
 
 Output on stdout:
 ```json
@@ -71,6 +76,6 @@ The agent verifies `"ok": true` and reports back to the user:
 1. **NEVER echo or cat the secret.** Do not run `cat ~/.openclaw/.env` or print the value in chat.
 2. **Atomic writes only.** The CLI uses `mkstemp`, `fchmod 0600`, and atomic rename so no partial or world-readable files ever exist.
 3. **No stdout leaks.** The CLI strictly suppresses payload bodies on all stdout/stderr channels.
-4. **SSRF protection.** The HTTP fetcher blocks loopback, link-local, and private RFC-1918 IP addresses unless `--allow-private-host` is explicitly provided.
+4. **SSRF protection.** The HTTP fetcher blocks the request when any resolved A/AAAA record is loopback, link-local, private, scoped, or otherwise non-global unless `--allow-private-host` is explicitly provided.
 5. **Treat links as bearer capabilities.** Accept them only from an authorized operator, consume them promptly, and never repost an unconsumed link.
-6. **Do not claim activation too early.** `openclaw-env` reports `restart_required: true`; ask for or perform an authorized Gateway restart before claiming the new process environment is active.
+6. **Do not claim activation too early.** `openclaw-env` reports `restart_required: true`; use `--restart-gateway` only when restart authorization is part of the task, otherwise report that a restart remains required.

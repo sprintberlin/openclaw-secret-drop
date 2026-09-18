@@ -23,7 +23,12 @@ def _openclaw_binary() -> str:
     return binary
 
 
-def _run_openclaw(argv: list[str], *, input_bytes: bytes | None = None) -> None:
+def _run_openclaw(
+    argv: list[str],
+    *,
+    input_bytes: bytes | None = None,
+    timeout: int = 45,
+) -> None:
     binary = _openclaw_binary()
     try:
         result = subprocess.run(
@@ -33,7 +38,7 @@ def _run_openclaw(argv: list[str], *, input_bytes: bytes | None = None) -> None:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
-            timeout=45,
+            timeout=timeout,
         )
     except subprocess.TimeoutExpired as exc:
         raise SecretDropError("OpenClaw CLI operation timed out.") from exc
@@ -59,6 +64,15 @@ def write_dotenv(path: str, name: str, secret: str) -> dict[str, Any]:
 def write_file(path: str, secret: str, *, replace: bool) -> dict[str, Any]:
     result = write_secret_file(Path(path), secret, replace=replace)
     return {"destination": "file", "restart_required": False, **result}
+
+
+def restart_openclaw_gateway(*, safe: bool = True) -> bool:
+    argv = ["gateway", "restart"]
+    if safe:
+        argv.append("--safe")
+    # --safe can wait up to five minutes before forcing the restart.
+    _run_openclaw(argv, timeout=330)
+    return True
 
 
 def write_openclaw_store(

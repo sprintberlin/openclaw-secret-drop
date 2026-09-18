@@ -22,6 +22,6 @@ jobs:
           cache: pip
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e .
-      - run: python -m unittest discover -s tests -v
+      - run: python -m unittest discover -v
       - run: python -m compileall -q secret_drop tests
       - run: python scripts/secret-drop providers --json

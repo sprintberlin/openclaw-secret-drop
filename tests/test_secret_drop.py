@@ -5,7 +5,9 @@ from __future__ import annotations
 import base64
 import contextlib
 import io
+import json
 import os
+import socket
 import stat
 import tempfile
 import unittest
@@ -16,7 +18,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from secret_drop.dotenv_file import format_assignment, upsert_env_file, write_secret_file
 from secret_drop.errors import SecretDropError
-from secret_drop.net import assert_public_https
+from secret_drop.net import _is_private_ip, assert_public_https, resolve_public_https
 from secret_drop.cli import main as cli_main
 from secret_drop.providers.pwpush import retrieve as pwpush_retrieve
 from secret_drop.providers.registry import detect_provider
@@ -48,7 +50,7 @@ class RedactTests(unittest.TestCase):
         clean = sanitize_url(url)
         self.assertNotIn("supersecret", clean)
         self.assertNotIn("fragmentkey123", clean)
-        self.assertIn("https://example.com/p/token", clean)
+        self.assertEqual(clean, "https://example.com/p/[redacted-token]")
 
     def test_redact_text_replaces_secret_and_fragment(self) -> None:
         raw = "error fetching https://snappwd.io/g/sp-123#mykey: sk-proj-12345 failed"
@@ -59,6 +61,14 @@ class RedactTests(unittest.TestCase):
 
     def test_host_of_normalizes(self) -> None:
         self.assertEqual(host_of("https://PWPUSH.com/p/abc"), "pwpush.com")
+
+    def test_redacts_provider_path_token_from_url_and_error_text(self) -> None:
+        token = "kngc42l6azicpqj5hbu"
+        url = f"https://pwpush.com/p/{token}"
+        raw = f"Invalid token prefix {token}; request failed for {url}"
+        safe = redact_text(raw, url=url)
+        self.assertNotIn(token, safe)
+        self.assertIn("/p/[redacted-token]", safe)
 
 
 class NetSecurityTests(unittest.TestCase):
@@ -72,6 +82,30 @@ class NetSecurityTests(unittest.TestCase):
 
     def test_allows_private_host_when_explicitly_authorized(self) -> None:
         assert_public_https("https://localhost/p/test", allow_private=True)
+
+    def test_rejects_ipv4_mapped_private_ipv6(self) -> None:
+        self.assertTrue(_is_private_ip("::ffff:127.0.0.1"))
+        self.assertFalse(_is_private_ip("::ffff:8.8.8.8"))
+
+    @patch("secret_drop.net.socket.getaddrinfo")
+    def test_rejects_mixed_public_and_private_dns_records(self, getaddrinfo) -> None:
+        getaddrinfo.return_value = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("fd00::1", 443, 0, 0)),
+        ]
+        with self.assertRaises(SecretDropError):
+            resolve_public_https("https://example.com/p/test")
+
+    @patch("secret_drop.net.socket.getaddrinfo")
+    def test_pins_first_address_only_after_all_records_pass(self, getaddrinfo) -> None:
+        getaddrinfo.return_value = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2606:2800:220:1:248:1893:25c8:1946", 443, 0, 0)),
+        ]
+        _host, _port, _path, connect_ip = resolve_public_https(
+            "https://example.com/p/test"
+        )
+        self.assertEqual(connect_ip, "93.184.216.34")
 
 
 class DotenvWriterTests(unittest.TestCase):
@@ -102,6 +136,31 @@ class DotenvWriterTests(unittest.TestCase):
             upsert_env_file(symlink, "KEY", "val")
         with self.assertRaises(SecretDropError):
             write_secret_file(symlink, "val")
+
+    def test_rechecks_for_symlink_immediately_before_replace(self) -> None:
+        victim = Path(self.temp_dir.name) / "victim.env"
+        victim.write_text("SAFE=unchanged\n")
+        self.env_file.write_text("KEY=old\n")
+
+        from secret_drop import dotenv_file
+
+        real_check = dotenv_file._assert_safe_replace_target
+
+        def inject_symlink(path: Path, *, destination: str) -> None:
+            path.unlink()
+            path.symlink_to(victim)
+            real_check(path, destination=destination)
+
+        with patch(
+            "secret_drop.dotenv_file._assert_safe_replace_target",
+            side_effect=inject_symlink,
+        ):
+            with self.assertRaises(SecretDropError):
+                upsert_env_file(self.env_file, "KEY", "new")
+
+        self.assertEqual(victim.read_text(), "SAFE=unchanged\n")
+        self.assertTrue(self.env_file.is_symlink())
+        self.assertEqual(list(Path(self.temp_dir.name).glob(".secret-drop-*.tmp")), [])
 
     def test_quotes_special_characters(self) -> None:
         line = format_assignment("COMPLEX", 'secret "quoted" with spaces')
@@ -171,6 +230,42 @@ class ProviderAdapterTests(unittest.TestCase):
 
 
 class CliLeakTests(unittest.TestCase):
+    @patch("secret_drop.cli.restart_openclaw_gateway")
+    @patch("secret_drop.cli.write_secret")
+    @patch("secret_drop.cli.retrieve_secret")
+    def test_restart_gateway_flag_requests_safe_restart(self, retrieve, write, restart) -> None:
+        secret = "sk-super-secret-value-1234567890"
+        retrieve.return_value = ("pwpush", secret)
+        write.return_value = {
+            "destination": "openclaw-env",
+            "name": "OPENROUTER_API_KEY",
+            "restart_required": True,
+            "created": False,
+            "replaced": True,
+            "path": "/tmp/.env",
+        }
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = cli_main(
+                [
+                    "ingest",
+                    "https://pwpush.com/p/testtoken123",
+                    "--to",
+                    "openclaw-env",
+                    "--name",
+                    "OPENROUTER_API_KEY",
+                    "--restart-gateway",
+                    "--json",
+                ]
+            )
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(code, 0)
+        restart.assert_called_once_with()
+        self.assertTrue(payload["gateway_restarted"])
+        self.assertFalse(payload["restart_required"])
+        self.assertNotIn(secret, stdout.getvalue() + stderr.getvalue())
+
     @patch("secret_drop.cli.write_secret")
     @patch("secret_drop.cli.retrieve_secret")
     def test_success_output_never_contains_secret(self, retrieve, write) -> None:

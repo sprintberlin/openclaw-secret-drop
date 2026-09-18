@@ -45,6 +45,18 @@ def format_assignment(name: str, value: str) -> str:
     return f"{name}={value}\n"
 
 
+def _assert_safe_replace_target(path: Path, *, destination: str) -> None:
+    """Reject a symlink or non-file target immediately before os.replace."""
+    try:
+        target_stat = os.lstat(path)
+    except FileNotFoundError:
+        return
+    if stat.S_ISLNK(target_stat.st_mode):
+        raise SecretDropError("Refusing to write through a symlink.")
+    if not stat.S_ISREG(target_stat.st_mode):
+        raise SecretDropError(f"{destination} exists and is not a regular file.")
+
+
 def upsert_env_file(path: Path, name: str, value: str) -> dict[str, str | int | bool]:
     validate_name(name)
     path = path.expanduser()
@@ -87,6 +99,7 @@ def upsert_env_file(path: Path, name: str, value: str) -> dict[str, str | int | 
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
+        _assert_safe_replace_target(path, destination="Env destination")
         os.replace(tmp_path, path)
         os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
     except Exception:
@@ -129,6 +142,7 @@ def write_secret_file(
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
+        _assert_safe_replace_target(path, destination="File destination")
         os.replace(tmp_path, path)
         os.chmod(path, 0o600)
     except Exception:
