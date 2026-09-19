@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openclaw-secret-drop"
-version = "0.1.0"
-description = "Silent one-time secret link ingest for OpenClaw messenger-only agents"
+version = "0.2.0"
+description = "Bidirectional one-time secret handoff for OpenClaw messenger agents"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
