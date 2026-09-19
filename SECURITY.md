@@ -12,6 +12,8 @@ Secret Drop is designed to keep the **plaintext secret value** out of:
 
 The one-time URL is still a bearer capability. It normally appears in the messenger message and the agent's tool request. Use one-view drops, short expiration, consume them promptly, and assume anyone who obtains an unconsumed link can redeem it.
 
+Outbound `share` creates a Password Pusher link from a local dotenv or file source. The CLI never prints the payload; only the resulting URL is returned.
+
 ## Provider trust models
 
 - **SnapPwd:** client-side encryption. The decryption key is in the URL fragment and is not sent to the provider server. Decryption runs in-process via Python `cryptography`.

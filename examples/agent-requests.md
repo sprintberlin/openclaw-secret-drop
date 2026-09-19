@@ -51,3 +51,19 @@ python3 <skill-directory>/scripts/secret-drop ingest \
   --name DATABASE_URL \
   --json
 ```
+
+## Outbound secret request from operator
+
+> What is the database password in `/srv/acme/.env`?
+
+Expected agent action:
+
+```bash
+python3 <skill-directory>/scripts/secret-drop share \
+  --from dotenv \
+  --path /srv/acme/.env \
+  --name DATABASE_URL \
+  --json
+```
+
+The agent posts only the resulting one-time URL back to the operator.

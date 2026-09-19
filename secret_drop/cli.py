@@ -11,7 +11,9 @@ from typing import Any
 from secret_drop import MAX_SECRET_BYTES, __version__
 from secret_drop.errors import SecretDropError
 from secret_drop.providers.registry import PROVIDERS, retrieve_secret
+from secret_drop.providers.share import DEFAULT_PWPUSH_API_BASE, create_push
 from secret_drop.redact import redact_text, sanitize_url
+from secret_drop.sources import read_secret_source
 from secret_drop.writers import restart_openclaw_gateway, write_secret
 
 
@@ -65,6 +67,28 @@ def _parser() -> argparse.ArgumentParser:
     )
     ingest.add_argument("--json", action="store_true", help="Emit secret-free JSON status")
 
+    share = sub.add_parser("share", help="Create a one-time link from a local secret source")
+    share.add_argument(
+        "--from",
+        dest="source",
+        required=True,
+        choices=("openclaw-env", "dotenv", "file"),
+        help="Local source type",
+    )
+    share.add_argument("--name", help="Environment entry name")
+    share.add_argument("--path", help="Source path for dotenv or file")
+    share.add_argument(
+        "--api-base",
+        default=DEFAULT_PWPUSH_API_BASE,
+        help="Password Pusher service root",
+    )
+    share.add_argument(
+        "--allow-private-host",
+        action="store_true",
+        help="Allow a trusted self-hosted provider on a private address",
+    )
+    share.add_argument("--json", action="store_true", help="Emit secret-free JSON status")
+
     providers = sub.add_parser("providers", help="List supported adapters")
     providers.add_argument("--json", action="store_true")
     return parser
@@ -82,6 +106,9 @@ def _emit(result: dict[str, Any], *, json_mode: bool) -> None:
         print(json.dumps(result, sort_keys=True, separators=(",", ":")))
         return
     if result.get("ok"):
+        if result.get("url"):
+            print(result["url"])
+            return
         name = f" as {result['name']}" if result.get("name") else ""
         if result.get("gateway_restarted"):
             suffix = " Gateway restart requested."
@@ -153,6 +180,32 @@ def _run_ingest(args: argparse.Namespace) -> int:
         secret = None
 
 
+def _run_share(args: argparse.Namespace) -> int:
+    secret: str | None = None
+    try:
+        secret = read_secret_source(source=args.source, path=args.path, name=args.name)
+        result = create_push(
+            secret,
+            api_base=args.api_base,
+            allow_private=args.allow_private_host,
+        )
+        _emit(result, json_mode=args.json)
+        return 0
+    except SecretDropError as exc:
+        result = {
+            "ok": False,
+            "error": _safe_error(str(exc), secret=secret, url=args.api_base),
+        }
+        _emit(result, json_mode=args.json)
+        return 2
+    except Exception:
+        result = {"ok": False, "error": "Unexpected internal failure; no secret was printed."}
+        _emit(result, json_mode=args.json)
+        return 3
+    finally:
+        secret = None
+
+
 def main(argv: list[str] | None = None) -> int:
     os.umask(0o077)
     parser = _parser()
@@ -170,6 +223,8 @@ def main(argv: list[str] | None = None) -> int:
             for item in data["providers"]:
                 print(f"{item['id']}\t{item['mode']}\tzero-knowledge={str(item['zero_knowledge']).lower()}")
         return 0
+    if args.command == "share":
+        return _run_share(args)
     return _run_ingest(args)
 
 

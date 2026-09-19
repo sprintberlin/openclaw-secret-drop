@@ -6,7 +6,7 @@
 
 **Zero-trace secret ingest for OpenClaw messenger agents.**
 
-Feed API keys, database URLs, and passwords to OpenClaw bots over Telegram, Discord, or Slack via single-use self-destructing links. Plaintext never enters chat transcripts, process logs, command arguments, or model context.
+Feed API keys, database URLs, and passwords to and from OpenClaw bots over Telegram, Discord, or Slack via single-use self-destructing links. Plaintext never enters chat transcripts, process logs, command arguments, or model context.
 
 ---
 
@@ -132,6 +132,14 @@ secret-drop ingest "https://snappwd.io/g/sp-uuid123#base58key" \
   --json
 ```
 
+### Share a stored secret outbound to an operator:
+```bash
+secret-drop share \
+  --from openclaw-env \
+  --name "OPENROUTER_API_KEY" \
+  --json
+```
+
 ### Output:
 ```json
 {
@@ -145,6 +153,18 @@ secret-drop ingest "https://snappwd.io/g/sp-uuid123#base58key" \
   "replaced": true,
   "gateway_restarted": true,
   "restart_required": false
+}
+```
+
+Share output:
+```json
+{
+  "expire_days": 1,
+  "expire_views": 1,
+  "ok": true,
+  "provider": "pwpush",
+  "retrieval_step": true,
+  "url": "https://pwpush.com/p/abcdef123456/r"
 }
 ```
 

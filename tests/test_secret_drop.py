@@ -22,8 +22,10 @@ from secret_drop.net import _is_private_ip, assert_public_https, resolve_public_
 from secret_drop.cli import main as cli_main
 from secret_drop.providers.pwpush import retrieve as pwpush_retrieve
 from secret_drop.providers.registry import detect_provider
+from secret_drop.providers.share import create_push
 from secret_drop.providers.snappwd import retrieve as snappwd_retrieve
 from secret_drop.redact import host_of, redact_text, sanitize_url
+from secret_drop.sources import read_dotenv_value, read_secret_source
 
 _BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
@@ -181,6 +183,44 @@ class DotenvWriterTests(unittest.TestCase):
         self.assertEqual(target.read_text(), "new")
 
 
+class SecretSourceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_reads_named_dotenv_value_without_printing_it(self) -> None:
+        path = self.root / ".env"
+        path.write_text(
+            "PLAIN=value-one\n"
+            "export QUOTED=\"secret with spaces\\nsecond line\"\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(read_dotenv_value(path, "PLAIN"), "value-one")
+        self.assertEqual(
+            read_dotenv_value(path, "QUOTED"),
+            "secret with spaces\nsecond line",
+        )
+
+    def test_rejects_symlink_secret_source(self) -> None:
+        target = self.root / "secret.txt"
+        target.write_text("hidden-secret", encoding="utf-8")
+        link = self.root / "secret-link.txt"
+        link.symlink_to(target)
+        with self.assertRaises(SecretDropError):
+            read_secret_source(source="file", path=str(link), name=None)
+
+    def test_reads_raw_file_exactly(self) -> None:
+        target = self.root / "secret.txt"
+        target.write_text("raw-secret-value", encoding="utf-8")
+        self.assertEqual(
+            read_secret_source(source="file", path=str(target), name=None),
+            "raw-secret-value",
+        )
+
+
 class ProviderAdapterTests(unittest.TestCase):
     def test_detect_provider(self) -> None:
         self.assertEqual(detect_provider("https://pwpush.com/p/abcd1234"), "pwpush")
@@ -240,8 +280,162 @@ class ProviderAdapterTests(unittest.TestCase):
         val = snappwd_retrieve(url, allow_private=True)
         self.assertEqual(val, "snappwd-plain-text")
 
+    @patch("secret_drop.providers.share.request_json")
+    def test_pwpush_creates_one_view_link(self, mock_json) -> None:
+        secret = "outbound-secret-value"
+        mock_json.return_value = (
+            201,
+            {
+                "url_token": "synthetic-token-123",
+                "html_url": "https://eu.pwpush.com/p/synthetic-token-123/r",
+                "expire_after_views": 1,
+                "expire_after_days": 1,
+                "retrieval_step": True,
+            },
+            b"",
+        )
+        result = create_push(secret)
+        self.assertEqual(result["url"], "https://eu.pwpush.com/p/synthetic-token-123/r")
+        self.assertEqual(result["expire_views"], 1)
+        self.assertEqual(result["expire_days"], 1)
+        self.assertTrue(result["retrieval_step"])
+        request_kwargs = mock_json.call_args.kwargs
+        self.assertFalse(request_kwargs["allow_redirects"])
+        request_payload = json.loads(request_kwargs["data"].decode("utf-8"))
+        self.assertEqual(request_payload["password"]["payload"], secret)
+        self.assertEqual(request_payload["password"]["expire_after_views"], 1)
+        self.assertEqual(request_payload["password"]["expire_after_days"], 1)
+        self.assertTrue(request_payload["password"]["retrieval_step"])
+        self.assertNotIn(secret, json.dumps(result))
+
+    @patch("secret_drop.providers.share.request_json")
+    def test_pwpush_rejects_invalid_response_token(self, mock_json) -> None:
+        mock_json.return_value = (
+            201,
+            {
+                "url_token": "../../bad",
+                "html_url": "https://pwpush.com/p/bad/r",
+                "expire_after_views": 1,
+                "expire_after_days": 1,
+                "retrieval_step": True,
+            },
+            b"",
+        )
+        with self.assertRaises(SecretDropError):
+            create_push("outbound-secret-value")
+
+    @patch("secret_drop.providers.share.request_json")
+    def test_pwpush_rejects_missing_retrieval_step_url(self, mock_json) -> None:
+        mock_json.return_value = (
+            201,
+            {
+                "url_token": "synthetic-token-123",
+                "expire_after_views": 1,
+                "expire_after_days": 1,
+                "retrieval_step": True,
+            },
+            b"",
+        )
+        with self.assertRaises(SecretDropError):
+            create_push("outbound-secret-value")
+
+    @patch("secret_drop.providers.share.request_json")
+    def test_pwpush_rejects_non_one_view_response(self, mock_json) -> None:
+        mock_json.return_value = (
+            201,
+            {
+                "url_token": "synthetic-token-123",
+                "html_url": "https://pwpush.com/p/synthetic-token-123/r",
+                "expire_after_views": 2,
+                "expire_after_days": 1,
+                "retrieval_step": True,
+            },
+            b"",
+        )
+        with self.assertRaises(SecretDropError):
+            create_push("outbound-secret-value")
+
+    @patch("secret_drop.providers.share.request_json")
+    def test_pwpush_rejects_foreign_share_host(self, mock_json) -> None:
+        mock_json.return_value = (
+            201,
+            {
+                "url_token": "synthetic-token-123",
+                "html_url": "https://attacker.example/p/synthetic-token-123/r",
+                "expire_after_views": 1,
+                "expire_after_days": 1,
+                "retrieval_step": True,
+            },
+            b"",
+        )
+        with self.assertRaises(SecretDropError):
+            create_push("outbound-secret-value")
+
 
 class CliLeakTests(unittest.TestCase):
+    @patch("secret_drop.cli.create_push")
+    @patch("secret_drop.cli.read_secret_source")
+    def test_share_outputs_only_one_time_link(self, read_source, create) -> None:
+        secret = "outbound-secret-value"
+        read_source.return_value = secret
+        create.return_value = {
+            "ok": True,
+            "url": "https://pwpush.com/p/synthetic-token-123/r",
+            "provider": "pwpush",
+            "expire_views": 1,
+            "expire_days": 1,
+            "retrieval_step": True,
+        }
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = cli_main(
+                [
+                    "share",
+                    "--from",
+                    "dotenv",
+                    "--path",
+                    "/tmp/project.env",
+                    "--name",
+                    "DB_PASSWORD",
+                    "--json",
+                ]
+            )
+        result = json.loads(stdout.getvalue())
+        self.assertEqual(code, 0)
+        self.assertEqual(result["url"], "https://pwpush.com/p/synthetic-token-123/r")
+        self.assertNotIn(secret, stdout.getvalue() + stderr.getvalue())
+        read_source.assert_called_once_with(
+            source="dotenv", path="/tmp/project.env", name="DB_PASSWORD"
+        )
+        create.assert_called_once_with(
+            secret,
+            api_base="https://eu.pwpush.com",
+            allow_private=False,
+        )
+
+    @patch("secret_drop.cli.create_push")
+    @patch("secret_drop.cli.read_secret_source")
+    def test_share_failure_never_outputs_secret(self, read_source, create) -> None:
+        secret = "outbound-secret-value"
+        read_source.return_value = secret
+        create.side_effect = SecretDropError(f"provider rejected {secret}")
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = cli_main(
+                [
+                    "share",
+                    "--from",
+                    "file",
+                    "--path",
+                    "/tmp/secret.txt",
+                    "--json",
+                ]
+            )
+        self.assertEqual(code, 2)
+        self.assertNotIn(secret, stdout.getvalue() + stderr.getvalue())
+
     @patch("secret_drop.cli.restart_openclaw_gateway")
     @patch("secret_drop.cli.write_secret")
     @patch("secret_drop.cli.retrieve_secret")

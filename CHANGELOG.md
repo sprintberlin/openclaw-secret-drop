@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+- Add `secret-drop share` command to create short-lived Password Pusher links from local `.env`, `~/.openclaw/.env`, or raw secret files without exposing plaintext.
+- Rewrite `SKILL.md` into a concise decision matrix for AI agents covering inbound drops, chat masking recovery, and outbound sharing.
 - Require Password Pusher retrieval-step handovers to preserve the API-returned
   `html_url` ending in `/r`; bare `/p/<token>` links can be consumed by messenger
   link previews even when `retrieval_step` was enabled at creation.

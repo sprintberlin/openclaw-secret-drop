@@ -112,11 +112,14 @@ class _SafeRedirect(HTTPRedirectHandler):
     max_repeats = MAX_REDIRECTS
     max_redirections = MAX_REDIRECTS
 
-    def __init__(self, *, allow_private: bool) -> None:
+    def __init__(self, *, allow_private: bool, allow_redirects: bool = True) -> None:
         super().__init__()
         self.allow_private = allow_private
+        self.allow_redirects = allow_redirects
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        if not self.allow_redirects:
+            raise SecretDropError("Provider redirects are not allowed for this operation.")
         resolve_public_https(newurl, allow_private=self.allow_private)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
@@ -129,13 +132,14 @@ def request_json(
     headers: dict[str, str] | None = None,
     timeout: int = DEFAULT_TIMEOUT,
     allow_private: bool = False,
+    allow_redirects: bool = True,
 ) -> tuple[int, dict[str, Any] | None, bytes]:
     resolve_public_https(url, allow_private=allow_private)
     hdrs = {"User-Agent": USER_AGENT, "Accept": "application/json", **(headers or {})}
     req = Request(url, data=data, headers=hdrs, method=method)
     context = ssl.create_default_context()
     opener = build_opener(
-        _SafeRedirect(allow_private=allow_private),
+        _SafeRedirect(allow_private=allow_private, allow_redirects=allow_redirects),
         _PinnedHTTPSHandler(context, allow_private=allow_private),
     )
     try:
